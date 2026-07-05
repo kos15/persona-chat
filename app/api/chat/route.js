@@ -16,15 +16,8 @@ const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 export async function POST(req) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return Response.json(
-        { error: "Server is missing OPENAI_API_KEY. Add it to your environment." },
-        { status: 500 }
-      );
-    }
-
     const body = await req.json();
-    const { personaId, messages } = body || {};
+    const { personaId, messages, apiKey } = body || {};
 
     if (!personaId || !PERSONAS[personaId]) {
       return Response.json({ error: "Unknown or missing personaId." }, { status: 400 });
@@ -33,10 +26,30 @@ export async function POST(req) {
       return Response.json({ error: "`messages` must be a non-empty array." }, { status: 400 });
     }
 
+    // Key resolution:
+    //   1. A user-supplied key (from their browser) takes priority. It is used
+    //      transiently for this one request only — never logged, never stored.
+    //   2. Otherwise fall back to the server's own OPENAI_API_KEY (if set).
+    const clientKey =
+      typeof apiKey === "string" && apiKey.trim().startsWith("sk-")
+        ? apiKey.trim()
+        : null;
+    const key = clientKey || process.env.OPENAI_API_KEY;
+
+    if (!key) {
+      return Response.json(
+        {
+          error:
+            "No API key available. Add your own OpenAI key via the 🔑 button, or set OPENAI_API_KEY on the server.",
+        },
+        { status: 401 }
+      );
+    }
+
     // Build the persona-aware, context-managed message list.
     const { messages: finalMessages } = buildMessages(personaId, messages);
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: key });
 
     const completion = await openai.chat.completions.create({
       model: MODEL,

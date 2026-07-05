@@ -13,6 +13,9 @@ import PersonaSwitcher from "@/components/PersonaSwitcher";
 import ChatMessage from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";
 import Composer from "@/components/Composer";
+import ApiKeyModal from "@/components/ApiKeyModal";
+
+const API_KEY_STORAGE = "persona-chat:openai-key";
 
 function greetingMessage(persona) {
   return { role: "assistant", content: persona.greeting };
@@ -33,6 +36,40 @@ export default function ChatApp() {
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
   const scrollRef = useRef(null);
+
+  // User-supplied OpenAI key. Lives only in this browser (localStorage).
+  const [apiKey, setApiKey] = useState("");
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(API_KEY_STORAGE);
+      if (saved) setApiKey(saved);
+    } catch {
+      /* localStorage unavailable — ignore */
+    }
+  }, []);
+
+  const saveKey = useCallback((key) => {
+    setApiKey(key);
+    try {
+      localStorage.setItem(API_KEY_STORAGE, key);
+    } catch {
+      /* ignore */
+    }
+    setKeyModalOpen(false);
+    setError(null);
+  }, []);
+
+  const clearKey = useCallback(() => {
+    setApiKey("");
+    try {
+      localStorage.removeItem(API_KEY_STORAGE);
+    } catch {
+      /* ignore */
+    }
+    setKeyModalOpen(false);
+  }, []);
 
   const persona = useMemo(
     () => personas.find((p) => p.id === activeId),
@@ -92,7 +129,11 @@ export default function ChatApp() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ personaId: activeId, messages: payloadMessages }),
+          body: JSON.stringify({
+            personaId: activeId,
+            messages: payloadMessages,
+            ...(apiKey ? { apiKey } : {}),
+          }),
           signal: controller.signal,
         });
 
@@ -135,7 +176,7 @@ export default function ChatApp() {
         abortRef.current = null;
       }
     },
-    [activeId, threads, isStreaming]
+    [activeId, threads, isStreaming, apiKey]
   );
 
   const stop = useCallback(() => {
@@ -157,14 +198,23 @@ export default function ChatApp() {
               Chat with an AI recreation of your favourite dev educator.
             </p>
           </div>
-          <button
-            onClick={resetThread}
-            disabled={isStreaming}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
-            title="Clear this conversation"
-          >
-            New chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setKeyModalOpen(true)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+              title={apiKey ? "Your API key is set — click to manage" : "Add your OpenAI API key"}
+            >
+              🔑 {apiKey ? "Key set" : "Add key"}
+            </button>
+            <button
+              onClick={resetThread}
+              disabled={isStreaming}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
+              title="Clear this conversation"
+            >
+              New chat
+            </button>
+          </div>
         </div>
         <PersonaSwitcher
           personas={personas}
@@ -216,6 +266,14 @@ export default function ChatApp() {
         onSend={send}
         onStop={stop}
         isStreaming={isStreaming}
+      />
+
+      <ApiKeyModal
+        open={keyModalOpen}
+        initialKey={apiKey}
+        onClose={() => setKeyModalOpen(false)}
+        onSave={saveKey}
+        onClear={clearKey}
       />
     </div>
   );
